@@ -50,6 +50,7 @@ import re
 import argparse
 import sys
 import os
+import logging
 from datetime import datetime
 from humanize import naturalsize
 from collections import OrderedDict, deque
@@ -60,6 +61,8 @@ if sys.version_info[0] == 2:
     reload(sys) # noqa
     sys.setdefaultencoding('utf-8')
 
+logger = logging.getLogger(__name__)
+
 
 def output(s):
     global wsgi, wsgi_output
@@ -67,18 +70,6 @@ def output(s):
         print(s)
     else:
         wsgi_output += s
-
-
-def info(*objs):
-    print("INFO:", *objs, file=sys.stderr)
-
-
-def warning(*objs):
-    print("WARNING:", *objs, file=sys.stderr)
-
-
-def debug(*objs):
-    print("DEBUG:\n", *objs, file=sys.stderr)
 
 
 def get_date(date_string, uts=False):
@@ -104,7 +95,7 @@ class ConfigLoader(object):
         contents = config.read(config_file)
 
         if not contents and config_file == './openvpn-monitor.conf':
-            warning('Config file does not exist or is unreadable: {0!s}'.format(config_file))
+            logger.warning('Config file does not exist or is unreadable: %s', config_file)
             if sys.prefix == '/usr':
                 conf_path = '/etc/'
             else:
@@ -113,9 +104,9 @@ class ConfigLoader(object):
             contents = config.read(config_file)
 
         if contents:
-            info('Using config file: {0!s}'.format(config_file))
+            logger.info('Using config file: %s', config_file)
         else:
-            warning('Config file does not exist or is unreadable: {0!s}'.format(config_file))
+            logger.warning('Config file does not exist or is unreadable: %s', config_file)
             self.load_default_settings()
 
         for section in config.sections():
@@ -125,7 +116,7 @@ class ConfigLoader(object):
                 self.parse_vpn_section(config, section)
 
     def load_default_settings(self):
-        info('Using default settings => localhost:5555')
+        logger.info('Using default settings => localhost:5555')
         self.settings = {'site': 'Default Site',
                          'maps': 'True',
                          'geoip_data': '/usr/share/GeoIP/GeoIPCity.dat',
@@ -148,8 +139,7 @@ class ConfigLoader(object):
                     pass
             except configparser.NoOptionError:
                 pass
-        if args.debug:
-            debug("=== begin section\n{0!s}\n=== end section".format(self.settings))
+        logger.debug("=== begin section\n%s\n=== end section", self.settings)
 
     def parse_vpn_section(self, config, section):
         self.vpns[section] = {}
@@ -159,16 +149,15 @@ class ConfigLoader(object):
             try:
                 vpn[option] = config.get(section, option)
                 if vpn[option] == -1:
-                    warning('CONFIG: skipping {0!s}'.format(option))
+                    logger.warning('CONFIG: skipping %s', option)
             except configparser.Error as e:
-                warning('CONFIG: {0!s} on option {1!s}: '.format(e, option))
+                logger.warning('CONFIG: %s on option %s: ', e, option)
                 vpn[option] = None
         if 'show_disconnect' in vpn and vpn['show_disconnect'] == 'True':
             vpn['show_disconnect'] = True
         else:
             vpn['show_disconnect'] = False
-        if args.debug:
-            debug("=== begin section\n{0!s}\n=== end section".format(vpn))
+        logger.debug("=== begin section\n%s\n=== end section", vpn)
 
 
 class OpenvpnMgmtInterface(object):
@@ -202,9 +191,9 @@ class OpenvpnMgmtInterface(object):
                 self.gi = geoip1.open(geoip_data, geoip1.GEOIP_STANDARD)
                 self.geoip_version = 1
             else:
-                warning('No compatible geoip1 or geoip2 data/libraries found.')
+                logger.warning('No compatible geoip1 or geoip2 data/libraries found.')
         except IOError:
-            warning('No compatible geoip1 or geoip2 data/libraries found.')
+            logger.warning('No compatible geoip1 or geoip2 data/libraries found.')
 
         for key, vpn in list(self.vpns.items()):
             self._socket_connect(vpn)
@@ -250,18 +239,18 @@ class OpenvpnMgmtInterface(object):
                 vpn['socket_connected'] = True
         except socket.timeout as e:
             vpn['error'] = '{0!s}'.format(e)
-            warning('socket timeout: {0!s}'.format(e))
+            logger.warning('socket timeout: %s', e)
             vpn['socket_connected'] = False
             if self.s:
                 self.s.shutdown(socket.SHUT_RDWR)
                 self.s.close()
         except socket.error as e:
             vpn['error'] = '{0!s}'.format(e.strerror)
-            warning('socket error: {0!s}'.format(e))
+            logger.warning('socket error: %s', e)
             vpn['socket_connected'] = False
         except Exception as e:
             vpn['error'] = '{0!s}'.format(e)
-            warning('unexpected error: {0!s}'.format(e))
+            logger.warning('unexpected error: %s', e)
             vpn['socket_connected'] = False
 
     def _socket_disconnect(self):
@@ -270,7 +259,7 @@ class OpenvpnMgmtInterface(object):
         self.s.close()
 
     def send_command(self, command):
-        info('Sending command: {0!s}'.format(command))
+        logger.info('Sending command: %s', command.strip())
         self._socket_send(command)
         data = ''
         if command.startswith('kill') or command.startswith('client-kill'):
@@ -283,8 +272,7 @@ class OpenvpnMgmtInterface(object):
                 break
             elif data.endswith("\nEND\r\n"):
                 break
-        if args.debug:
-            debug("=== begin raw data\n{0!s}\n=== end raw data".format(data))
+        logger.debug("=== begin raw data\n%s\n=== end raw data", data)
         return data
 
     @staticmethod
@@ -292,8 +280,7 @@ class OpenvpnMgmtInterface(object):
         state = {}
         for line in data.splitlines():
             parts = line.split(',')
-            if args.debug:
-                debug("=== begin split line\n{0!s}\n=== end split line".format(parts))
+            logger.debug("=== begin split line\n%s\n=== end split line", parts)
             if parts[0].startswith('>INFO') or \
                parts[0].startswith('END') or \
                parts[0].startswith('>CLIENT'):
@@ -319,8 +306,7 @@ class OpenvpnMgmtInterface(object):
         stats = {}
         line = re.sub('SUCCESS: ', '', data)
         parts = line.split(',')
-        if args.debug:
-            debug("=== begin split line\n{0!s}\n=== end split line".format(parts))
+        logger.debug("=== begin split line\n%s\n=== end split line", parts)
         stats['nclients'] = int(re.sub('nclients=', '', parts[0]))
         stats['bytesin'] = int(re.sub('bytesin=', '', parts[1]))
         stats['bytesout'] = int(re.sub('bytesout=', '', parts[2]).replace('\r\n', ''))
@@ -336,8 +322,7 @@ class OpenvpnMgmtInterface(object):
 
         for line in data.splitlines():
             parts = deque(line.split('\t'))
-            if args.debug:
-                debug("=== begin split line\n{0!s}\n=== end split line".format(parts))
+            logger.debug("=== begin split line\n%s\n=== end split line", parts)
 
             if parts[0].startswith('END'):
                 break
@@ -451,12 +436,11 @@ class OpenvpnMgmtInterface(object):
                 if local_ip in sessions:
                     sessions[local_ip]['last_seen'] = get_date(last_seen, uts=True)
 
-        if args.debug:
-            if sessions:
-                pretty_sessions = pformat(sessions)
-                debug("=== begin sessions\n{0!s}\n=== end sessions".format(pretty_sessions))
-            else:
-                debug("no sessions")
+        if sessions:
+            pretty_sessions = pformat(sessions)
+            logger.debug("=== begin sessions\n%s\n=== end sessions", pretty_sessions)
+        else:
+            logger.debug("no sessions")
 
         return sessions
 
@@ -637,7 +621,7 @@ class OpenvpnHtmlPrinter(object):
             output('{0!s} ({1!s})</div></div>'.format(vpn['socket'],
                                                       vpn['error']))
         else:
-            warning('fail to get socket or network info: {}'.format(vpn))
+            logger.warning('fail to get socket or network info: %s', vpn)
             output('network or unix socket</div></div>')
 
     def print_vpn(self, vpn_id, vpn):
@@ -826,9 +810,8 @@ def main(**kwargs):
     cfg = ConfigLoader(args.config)
     monitor = OpenvpnMgmtInterface(cfg, **kwargs)
     OpenvpnHtmlPrinter(cfg, monitor)
-    if args.debug:
-        pretty_vpns = pformat((dict(monitor.vpns)))
-        debug("=== begin vpns\n{0!s}\n=== end vpns".format(pretty_vpns))
+    pretty_vpns = pformat((dict(monitor.vpns)))
+    logger.debug("=== begin vpns\n%s\n=== end vpns", pretty_vpns)
 
 
 def get_args():
@@ -843,8 +826,21 @@ def get_args():
     return parser.parse_args()
 
 
+def setup_logging():
+    logging.basicConfig(format='[%(asctime)s.%(msecs)03d][%(levelname)8s][%(name)s] %(message)s',
+                        datefmt='%Y-%m-%d %H:%M:%S',
+                        level=logging.INFO)
+
+
+def set_logging_level(level):
+    logging.getLogger().setLevel(level)
+
+
 if __name__ == '__main__':
+    setup_logging()
     args = get_args()
+    if args.debug:
+        set_logging_level(logging.DEBUG)
     wsgi = False
     main()
 
@@ -870,8 +866,7 @@ def monitor_wsgi():
     @app.hook('before_request')
     def strip_slash():
         request.environ['PATH_INFO'] = request.environ.get('PATH_INFO', '/').rstrip('/')
-        if args.debug:
-            debug(pformat(request.environ))
+        logger.debug(pformat(request.environ))
 
     @app.route('/', method='GET')
     def get_slash():
@@ -899,6 +894,7 @@ if __name__.startswith('_mod_wsgi_') or \
         os.chdir(os.path.dirname(__file__))
         sys.path.append(os.path.dirname(__file__))
     from bottle import Bottle, response, request, static_file
+    setup_logging()
 
     class args(object):
         debug = False
