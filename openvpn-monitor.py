@@ -16,21 +16,8 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-from __future__ import unicode_literals
-
-try:
-    import ConfigParser as configparser
-except ImportError:
-    import configparser
-
-try:
-    from ipaddr import IPAddress as ip_address
-    from ipaddr import IPv6Address
-except ImportError:
-    from ipaddress import ip_address, IPv6Address
+import configparser
+from ipaddress import ip_address, IPv6Address
 
 try:
     import GeoIP as geoip1
@@ -56,20 +43,15 @@ from humanize import naturalsize
 from collections import OrderedDict, deque
 from pprint import pformat
 from semantic_version import Version as semver
+import flask
 
-if sys.version_info[0] == 2:
-    reload(sys) # noqa
-    sys.setdefaultencoding('utf-8')
 
 logger = logging.getLogger(__name__)
 
 
 def output(s):
-    global wsgi, wsgi_output
-    if not wsgi:
-        print(s)
-    else:
-        wsgi_output += s
+    global wsgi_output
+    wsgi_output += s
 
 
 def get_date(date_string, uts=False):
@@ -491,10 +473,6 @@ class OpenvpnHtmlPrinter(object):
         self.datetime_format = settings['datetime_format']
 
     def print_html_header(self):
-
-        global wsgi
-        if not wsgi:
-            output("Content-Type: text/html\n")
         output('<!doctype html>')
         output('<html lang="en"><head>')
         output('<meta charset="utf-8">')
@@ -836,53 +814,30 @@ def set_logging_level(level):
     logging.getLogger().setLevel(level)
 
 
-if __name__ == '__main__':
-    setup_logging()
-    args = get_args()
-    if args.debug:
-        set_logging_level(logging.DEBUG)
-    wsgi = False
-    main()
-
-
 def monitor_wsgi():
-
-    owd = os.getcwd()
-    if owd.endswith('site-packages') and sys.prefix != '/usr':
-        # virtualenv
-        image_dir = owd + '/../../../share/openvpn-monitor/'
-    else:
-        image_dir = ''
-
-    app = Bottle()
+    app = flask.Flask(__name__)
 
     def render(**kwargs):
         global wsgi_output
         wsgi_output = ''
         main(**kwargs)
-        response.content_type = 'text/html;'
         return wsgi_output
 
-    @app.hook('before_request')
-    def strip_slash():
-        request.environ['PATH_INFO'] = request.environ.get('PATH_INFO', '/').rstrip('/')
-        logger.debug(pformat(request.environ))
-
-    @app.route('/', method='GET')
+    @app.route('/', methods=['GET'])
     def get_slash():
         return render()
 
-    @app.route('/', method='POST')
-    def post_slash():
-        vpn_id = request.forms.get('vpn_id')
-        ip = request.forms.get('ip')
-        port = request.forms.get('port')
-        client_id = request.forms.get('client_id')
-        return render(vpn_id=vpn_id, ip=ip, port=port, client_id=client_id)
+    # @app.route('/', methods=['POST'])
+    # def post_slash():
+    #     vpn_id = request.forms.get('vpn_id')
+    #     ip = request.forms.get('ip')
+    #     port = request.forms.get('port')
+    #     client_id = request.forms.get('client_id')
+    #     return render(vpn_id=vpn_id, ip=ip, port=port, client_id=client_id)
 
-    @app.route('/<filename:re:.*\.(jpg|png)>', method='GET')
+    @app.route('/images/flags/<string:filename>', methods=['GET'])
     def get_images(filename):
-        return static_file(filename, image_dir)
+        return flask.send_from_directory('images/flags', filename)
 
     return app
 
@@ -893,13 +848,21 @@ if __name__.startswith('_mod_wsgi_') or \
     if __file__ != 'openvpn-monitor.py':
         os.chdir(os.path.dirname(__file__))
         sys.path.append(os.path.dirname(__file__))
-    from bottle import Bottle, response, request, static_file
     setup_logging()
 
     class args(object):
         debug = False
         config = './openvpn-monitor.conf'
 
-    wsgi = True
     wsgi_output = ''
     application = monitor_wsgi()
+
+
+if __name__ == '__main__':
+    # Run Flask dev server
+    setup_logging()
+    args = get_args()
+    if args.debug:
+        set_logging_level(logging.DEBUG)
+    app = monitor_wsgi()
+    app.run(debug=True)
