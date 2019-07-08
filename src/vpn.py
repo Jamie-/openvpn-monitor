@@ -153,10 +153,9 @@ class VPN:
     def version(self):
         """OpenVPN version number.
         """
-        release = self.release()
-        if release is None:
+        if self.release is None:
             return None
-        match = re.search('OpenVPN (?P<version>\d+.\d+.\d+)', release)
+        match = re.search('OpenVPN (?P<version>\d+.\d+.\d+)', self.release)
         if not match:
             raise ParseError('Unable to parse version from release string.')
         return match.group('version')

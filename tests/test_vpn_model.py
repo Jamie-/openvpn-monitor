@@ -78,27 +78,23 @@ END
         self.assertEqual(vpn.release, 'asd')
         mock_get_version.assert_not_called()
 
-    @patch('vpn.VPN.release')
-    def test_version(self, mock_release):
+    @patch('vpn.VPN._get_version')
+    def test_version(self, mock_get_version):
         vpn = VPN(host='localhost', port=1234)
-        mock_release.return_value = 'OpenVPN 2.4.4 x86_64-pc-linux-gnu [SSL (OpenSSL)] [LZO] [LZ4] [EPOLL] [PKCS11] [MH/PKTINFO] [AEAD] built on Sep  5 2018'
+        vpn._release = 'OpenVPN 2.4.4 x86_64-pc-linux-gnu [SSL (OpenSSL)] [LZO] [LZ4] [EPOLL] [PKCS11] [MH/PKTINFO] [AEAD] built on Sep  5 2018'
         self.assertEqual(vpn.version, '2.4.4')
-        mock_release.assert_called_once_with()
-        mock_release.reset_mock()
-        mock_release.return_value = 'OpenVPN 1.2.3 x86_64-pc-linux-gnu [SSL (OpenSSL)] [LZO] [LZ4] [EPOLL] [PKCS11] [MH/PKTINFO] [AEAD] built on Sep  5 2018'
+        vpn._release = 'OpenVPN 1.2.3 x86_64-pc-linux-gnu [SSL (OpenSSL)] [LZO] [LZ4] [EPOLL] [PKCS11] [MH/PKTINFO] [AEAD] built on Sep  5 2018'
         self.assertEqual(vpn.version, '1.2.3')
-        mock_release.assert_called_once_with()
-        mock_release.reset_mock()
-        mock_release.return_value = 'OpenVPN 11.22.33 x86_64-pc-linux-gnu [SSL (OpenSSL)] [LZO] [LZ4] [EPOLL] [PKCS11] [MH/PKTINFO] [AEAD] built on Sep  5 2018'
+        vpn._release = 'OpenVPN 11.22.33 x86_64-pc-linux-gnu [SSL (OpenSSL)] [LZO] [LZ4] [EPOLL] [PKCS11] [MH/PKTINFO] [AEAD] built on Sep  5 2018'
         self.assertEqual(vpn.version, '11.22.33')
-        mock_release.assert_called_once_with()
-        mock_release.reset_mock()
-        mock_release.return_value = None
+        vpn._release = None
+        mock_get_version.assert_not_called()  # Check mock hasn't been triggered up to this point
+        mock_get_version.return_value = None
         self.assertIsNone(vpn.version)
-        mock_release.assert_called_once_with()
-        mock_release.reset_mock()
-        mock_release.return_value = 'asd'
+        mock_get_version.assert_called_once()
+        mock_get_version.reset_mock()
+        vpn._release = 'asd'
         with self.assertRaises(ParseError) as ctx:
             vpn.version()
         self.assertEqual('Unable to parse version from release string.', str(ctx.exception))
-        mock_release.assert_called_once_with()
+        mock_get_version.assert_not_called()
