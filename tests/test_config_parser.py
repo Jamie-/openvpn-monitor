@@ -2,6 +2,12 @@ import unittest
 from util.config_parser import ConfigParser
 from util.errors import InvalidConfigError
 
+# Sneaky hack to get PyCharm test runner to pick up data dir
+import os
+if 'data' not in os.listdir('.'):
+    os.chdir('tests')
+
+
 class TestConfigParser(unittest.TestCase):
     """Test the config file parser monitor.util.config_parser.ConfigParser
     """
