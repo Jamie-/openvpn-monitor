@@ -2,8 +2,9 @@ import logging
 import socket
 import re
 import contextlib
+import util
 from util.errors import MonitorError, ParseError
-from models.state import ServerState
+from models.state import State
 from models.stats import ServerStats
 
 logger = logging.getLogger(__name__)
@@ -24,7 +25,7 @@ class VPN:
 
     name = None  # VPN name from config
     _release = None  # OpenVPN release string
-    state = ServerState()  # State object
+    _state = None  # State object
     stats = ServerStats()  # Stats object
     sessions = []  # Client sessions
     allow_disconnect = False  # Allow disconnect via API
@@ -132,6 +133,12 @@ class VPN:
 
     # Interface commands and parsing
 
+    @staticmethod
+    def has_prefix(line):
+        return line.startswith('>INFO') or \
+               line.startswith('>CLIENT') or \
+               line.startswith('>STATE')
+
     def _get_version(self):
         """Get OpenVPN version from socket.
         """
@@ -159,3 +166,58 @@ class VPN:
         if not match:
             raise ParseError('Unable to parse version from release string.')
         return match.group('version')
+
+    def _get_state(self):
+        """Get OpenVPN state from socket.
+        """
+        raw = self.send_command('state')
+        for line in raw.splitlines():
+            if self.has_prefix(line):
+                continue
+            if line.strip() == 'END':
+                break
+            parts = line.split(',')
+            # 0 - Unix timestamp of server start (UTC?)
+            up_since = parts[0]
+            # 1 - Connection state
+            state_name = util.nonify_string(parts[1])
+            # 2 - Connection state description
+            desc_string = util.nonify_string(parts[2])
+            # 3 - TUN/TAP local v4 address
+            local_virtual_v4_addr = util.nonify_string(parts[3])
+            # 4 - Remote server address (client only)
+            remote_addr = util.nonify_string(parts[4])
+            # 5 - Remote server port (client only)
+            remote_port = util.nonify_int(parts[5])
+            # 6 - Local address
+            local_addr = util.nonify_string(parts[6])
+            # 7 - Local port
+            local_port = util.nonify_int(parts[7])
+            return State(up_since=up_since,
+                         state_name=state_name,
+                         desc_string=desc_string,
+                         local_virtual_v4_addr=local_virtual_v4_addr,
+                         remote_addr=remote_addr,
+                         remote_port=remote_port,
+                         local_addr=local_addr,
+                         local_port=local_port)
+
+    @property
+    def state(self):
+        """OpenVPN daemon state.
+        """
+        if self._state is None:
+            self._state = self._get_state()
+        return self._state
+
+    def cache_data(self):
+        """Cached some metadata about the connection.
+        """
+        _ = self.release
+        _ = self.state
+
+    def clear_cache(self):
+        """Clear cached state data about connection.
+        """
+        self._release = None
+        self._state = None

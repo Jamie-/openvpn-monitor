@@ -1,5 +1,6 @@
 import unittest
-from unittest.mock import patch
+import datetime
+from unittest.mock import patch, PropertyMock
 from vpn import VPN, VPNType
 from util.errors import MonitorError, ParseError
 
@@ -98,3 +99,38 @@ END
             vpn.version()
         self.assertEqual('Unable to parse version from release string.', str(ctx.exception))
         mock_get_version.assert_not_called()
+
+    @patch('vpn.VPN.send_command')
+    def test_server_state(self, mock):
+        vpn = VPN(host='localhost', port=1234)
+        mock.return_value = """1560719601,CONNECTED,SUCCESS,10.0.0.1,,,1.2.3.4,1194
+END"""
+        self.assertIsNone(vpn._state)
+        state = vpn.state
+        mock.assert_called_once()
+        self.assertEqual(datetime.datetime(2019, 6, 16, 22, 13, 21), state.up_since)
+        self.assertEqual('CONNECTED', state.state_name)
+        self.assertEqual('SUCCESS', state.desc_string)
+        self.assertEqual('10.0.0.1', state.local_virtual_v4_addr)
+        self.assertIsNone(state.remote_addr)
+        self.assertIsNone(state.remote_port)
+        self.assertEqual('1.2.3.4', state.local_addr)
+        self.assertEqual(1194, state.local_port)
+        mock.reset_mock()
+        _ = vpn.state
+        mock.assert_not_called()
+
+    @patch('vpn.VPN.release', new_callable=PropertyMock)
+    @patch('vpn.VPN.state', new_callable=PropertyMock)
+    def test_cache(self, release_mock, state_mock):
+        """Test caching VPN metadata works and clears correctly.
+        """
+        vpn = VPN(host='localhost', port=1234)
+        vpn.cache_data()
+        release_mock.assert_called_once()
+        state_mock.assert_called_once()
+        vpn._release = 'asd'
+        vpn._state = 'qwe'
+        vpn.clear_cache()
+        self.assertIsNone(vpn._release)
+        self.assertIsNone(vpn._state)
